@@ -1,0 +1,13 @@
+{
+  "name": "dsh-recall",
+  "version": "1.0.0",
+  "description": "dsh 撤回：只撤最后一条用户消息，对话与工作区文件一起回退",
+  "type": "module",
+  "main": "lib/index.js",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}
