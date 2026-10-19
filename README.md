@@ -44,10 +44,26 @@ grep -i recall ~/.dsh/dsh-web.log | tail
 [recall] 撤回还原路由已注册: /api/recall.restore
 ```
 
-### 卸载
+### 卸载（**请按顺序，别只跑第一条**）
 
 ```bash
+# ① 先把前端还原干净（移除撤回按钮）
+node /插件目录/lib/uninstall.js
+
+# ② 再摘掉插件本身
 dsh plugin --profile web remove dsh-recall
+
+# ③ 手动重启 dsh web
+```
+
+**为什么不能只跑 `remove`**：本插件靠改写 DSH 安装目录里的前端文件来加按钮，
+`dsh plugin remove` 只会摘掉插件、**不会**还原那个文件。只跑它的话，撤回按钮会残留在界面上
+（点了没反应，因为宿主不再注入 `__dshRecall`，但看着就像没卸干净）。
+
+顺带清掉快照（可选，目录在 `~/.dsh/.recall-snapshots/`）：
+
+```bash
+rm -rf ~/.dsh/.recall-snapshots
 ```
 
 ### 本地开发 / 改代码时
@@ -96,6 +112,12 @@ dsh plugin --profile web add link:/绝对路径/dsh-recall
    若某个超大文件在本轮被 AI 改坏，撤回后需要主人手动取回。
 2. 撤回是**一次性**的：还原完成后不会再保留「撤回的撤回」。
 
+## 插件页显示什么
+
+「来源」一行显示的是**仓库地址**（`https://github.com/Zok66/dsh-recall`），「作者」是 `佐罗斯`，两者都来自 `package.json` 的 `repository` 与 `author` 字段，安装时自动写好。
+
+来源**刻意保持纯 URL**，因为宿主只有识别出 GitHub / npm / Release 来源才能提供「检查更新」。把它写成「佐罗斯（地址）」这类文案虽然更好看，但会让卡片上的「检查更新」直接变成不可用——这也是本插件不这么做的原因。版本发布后，朋友在插件页点「更多 → 检查更新」即可升级。
+
 ## 附件回填是怎么实现的（给维护者）
 
 撤回时前端只能从会话快照拿到附件**引用**（`attachmentId`、`name`、`mediaType`…），拿不到字节：
@@ -123,16 +145,34 @@ dsh-recall/
     ├── index.js           # 插件入口：启用补丁 + 每轮快照 + 撤回时还原文件
     ├── client-patch.js    # 给聊天前端注入「撤回」按钮与附件回填（自愈补丁，自动定位目标文件）
     ├── attachment-route.js # 主机侧只读附件路由（普通文件字节回读）
+    ├── uninstall.js       # 卸载时把前端还原干净（带基线校验，不降级）
     └── snapshot-store.js  # 工作区文件快照 / 还原核心
 ```
 
 ## 卸载
 
-```bash
-dsh plugin --profile web remove dsh-recall
-```
+完整步骤见上文「安装 → 卸载」一节，核心是**先跑 `lib/uninstall.js` 再 `remove`**。
 
-卸载后插件不再加载，但已注入到 chat 前端文件里的撤回按钮代码仍残留（自愈标记不会自动清除）。如需彻底还原前端，可从 `client.js.orig-recall` 备份恢复，或重装 DSH 覆盖该文件。
+### 还原是怎么保证安全的
+
+`lib/uninstall.js` 不是简单粗暴地拷备份，它先做**基线校验**：
+
+> 用 `.orig-recall` 备份重新打一遍补丁，结果必须**逐字节等于**当前文件。
+
+只有校验通过才还原。这样能防住一个真实风险：如果 DSH 升级过，旧备份就是**旧版本前端**，
+直接用它还原等于把整个聊天界面降级，比留着按钮危险得多。校验不过会明确拒绝并说明原因。
+
+另外两个安全设计：
+
+- 还原前把「带补丁的当前版本」另存为 `client.js.recall-before-uninstall`，后悔随时能换回来；
+- 支持 `--dry-run` 演练、`--status` 只看状态，不写任何东西。
+
+```bash
+node lib/uninstall.js --status    # 看当前状态与能否还原
+node lib/uninstall.js --dry-run   # 演练，不写盘
+node lib/uninstall.js             # 真正还原
+node lib/uninstall.js --force     # 跳过基线校验（确认风险再用）
+```
 
 ## 许可
 
