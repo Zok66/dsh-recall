@@ -134,6 +134,15 @@ rm -rf ~/.dsh/.recall-snapshots
 > （点击静默无反应）。现在改读宿主视图容器自带的
 > `[data-conversation-region="chat"][data-conversation-session]` 锚点，
 > 它由宿主 React 树直接渲染，值就是屏幕上正在显示的会话 id。锚点消失时静默忽略。
+>
+> **v2.1.5 修 Android App 里「点了没反应、连确认框都没有」**：
+> DSHA App 的 WebView 若没实现 WebChromeClient，`window.confirm` 要么不存在、
+> 要么弹窗被吞且同步返回 `false`——旧代码把 `false` 一律当「用户取消」直接放弃，
+> 于是点击看起来毫无反应（宿主日志无任何痕迹，实测复现）。现在：
+> - `confirm` 正常返回 `true` → 照常撤回（桌面浏览器行为不变）；
+> - `confirm` 不存在 → 直接撤回（无弹窗能力的环境宁撤勿卡）；
+> - `confirm` 返回 `false` → **3 秒内再点一次撤回按钮 = 确认撤回**（双击确认），
+>   第一次点击会 alert 提示这条规则。
 
 ## 开发：客户端半边的规范要点
 
