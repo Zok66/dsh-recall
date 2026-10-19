@@ -1,6 +1,6 @@
 {
   "name": "dsh-recall",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "dsh 撤回：只撤最后一条用户消息，对话与工作区文件一起回退（文字与附件一起回填输入框）",
   "type": "module",
   "main": "lib/index.js",
@@ -13,9 +13,21 @@
   "engines": {
     "dsh": ">=0.2.0-rc.2"
   },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   },
   "license": "MIT"
