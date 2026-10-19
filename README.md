@@ -58,6 +58,19 @@ v2.2 的撤回按钮通过**改写 `dsh-client-ui-chat/lib/client.js`** 注入�
 rm -rf ~/.dsh/.recall-snapshots
 ```
 
+## 更新（一键脚本）
+
+DSH 目前没有插件原地更新能力，「检查更新」在目标包已被 pnpm 落成实体目录时会报 `PLUGIN_MANAGER_EXIT_1` 卡死。本仓库提供 `update.sh`，把「卸载 + 重装」自动化并保证前端补丁正确清理：
+
+```bash
+bash update.sh          # 更新 web profile
+bash update.sh tui      # 更新指定 profile
+```
+
+脚本做的事：① 用**已安装版本自己的** `lib/uninstall.js` 还原前端补丁 → ② `dsh plugin remove` 摘旧包（同时解除实体目录冲突）→ ③ `dsh plugin add` 装最新版。跑完**手动重启 `dsh`**（或刷新页面）生效。
+
+> 也可以手动两步走：先 `node <插件目录>/lib/uninstall.js`，再 `dsh plugin --profile web remove dsh-recall`，最后 `add` 新版。
+
 ## 撤回语义（与普通聊天撤回不同）
 
 本插件的「撤回」不只是删一条气泡，而是**分支 + 文件回退**：
