@@ -44,21 +44,21 @@ grep -i recall ~/.dsh/dsh-web.log | tail
 [recall] 撤回还原路由已注册: /api/recall.restore
 ```
 
-### 卸载（**一条命令就够**）
+### 卸载（**请按顺序，别只跑第一条**）
 
 ```bash
+# ① 先把前端还原干净（移除撤回按钮）
+node /插件目录/lib/uninstall.js
+
+# ② 再摘掉插件本身
 dsh plugin --profile web remove dsh-recall
+
+# ③ 手动重启 dsh web
 ```
 
-**不需要任何额外清理步骤。** 本插件从 v2.0 起改用 DSH 官方的「双面包」机制：
-撤回按钮是一个正规的浏览器端插件模块（`lib/client.js`），由宿主按
-`package.json` 的 `dsh.client` 声明加载。
-
-`remove` 之后宿主不再加载这个包，**按钮自动消失**——不存在"残留"问题。
-
-> v1.x 不是这样的：那时靠正则改写 DSH 安装目录里的 `dsh-client-ui-chat/lib/client.js`
-> 来注入按钮，卸载后改过的文件留在原地、按钮不会消失，还得手动跑还原脚本。
-> 这套做法已彻底删除。
+**为什么不能只跑 `remove`**：本插件靠改写 DSH 安装目录里的前端文件来加按钮，
+`dsh plugin remove` 只会摘掉插件、**不会**还原那个文件。只跑它的话，撤回按钮会残留在界面上
+（点了没反应，因为宿主不再注入 `__dshRecall`，但看着就像没卸干净）。
 
 顺带清掉快照（可选，目录在 `~/.dsh/.recall-snapshots/`）：
 
@@ -87,8 +87,8 @@ dsh plugin --profile web add link:/绝对路径/dsh-recall
 
 ## 注意事项
 
-1. **从 v2.0 起不再改写任何框架文件。** 撤回按钮是正规的浏览器端插件模块，经 `dsh.client` 声明由宿主加载，DSH 升级/重装都不会把它弄丢，卸载也会自动消失。
-   （v1.x 用「正则补丁改写 `dsh-client-ui-chat/lib/client.js`」的老办法已彻底废弃。）
+1. **首次启动会改写 DSH 安装目录里的 chat 前端文件**（`@deepseek-ai/dsh-client-ui-chat/lib/client.js`），注入撤回按钮。
+   这是设计内的「自愈补丁」——DSH 升级或重装把改动覆盖掉后，插件下次启动会**自动重新打上**，不影响正常对话。被改写文件会自动备份为 `client.js.orig-recall`。
 2. **撤回会动工作区文件**，请在意的目录上谨慎使用（例如不要把重要未提交改动留在一轮里才去撤）。
 3. 若撤回的是会话里**唯一一条**用户消息，无法在保留会话内容的同时把它移除（新分支会变成空白会话导致界面错乱），此时插件**只把原文与附件放回当前会话输入框**，不创建分支，并提示你「如需完全重来，请新建会话」。
 4. 文件快照默认存放在 `$DSH_HOME/.recall-snapshots/`（DSH 运行时已注入 `DSH_HOME`），单文件上限 8MB、单会话快照上限 512MB，超出从最旧的轮次开始自动清理。
@@ -142,21 +142,37 @@ dsh-recall/
 ├── cordis.patch.yml       # bundle 挂载声明
 ├── README.md
 └── lib/
-    ├── index.js           # 主机半边：每轮快照 + 撤回时还原文件 + 附件字节路由
-    ├── client.js          # 浏览器半边：撤回按钮（官方插槽，不改写框架文件）
-    ├── attachment-route.js # 主机侧只读附件路由 + 撤回还原路由
+    ├── index.js           # 插件入口：启用补丁 + 每轮快照 + 撤回时还原文件
+    ├── client-patch.js    # 给聊天前端注入「撤回」按钮与附件回填（自愈补丁，自动定位目标文件）
+    ├── attachment-route.js # 主机侧只读附件路由（普通文件字节回读）
+    ├── uninstall.js       # 卸载时把前端还原干净（带基线校验，不降级）
     └── snapshot-store.js  # 工作区文件快照 / 还原核心
 ```
 
 ## 卸载
 
-一条命令：`dsh plugin --profile web remove dsh-recall`。详见上文「安装 → 卸载」。
+完整步骤见上文「安装 → 卸载」一节，核心是**先跑 `lib/uninstall.js` 再 `remove`**。
 
-### 为什么不再需要「还原脚本」
+### 还原是怎么保证安全的
 
-v1.x 需要 `lib/uninstall.js`，是因为它改写了框架文件、卸不干净。
-v2.0 走官方双面包后，这个文件连同 `lib/client-patch.js` 一起删掉了——
-没有改写，就不需要还原。
+`lib/uninstall.js` 不是简单粗暴地拷备份，它先做**基线校验**：
+
+> 用 `.orig-recall` 备份重新打一遍补丁，结果必须**逐字节等于**当前文件。
+
+只有校验通过才还原。这样能防住一个真实风险：如果 DSH 升级过，旧备份就是**旧版本前端**，
+直接用它还原等于把整个聊天界面降级，比留着按钮危险得多。校验不过会明确拒绝并说明原因。
+
+另外两个安全设计：
+
+- 还原前把「带补丁的当前版本」另存为 `client.js.recall-before-uninstall`，后悔随时能换回来；
+- 支持 `--dry-run` 演练、`--status` 只看状态，不写任何东西。
+
+```bash
+node lib/uninstall.js --status    # 看当前状态与能否还原
+node lib/uninstall.js --dry-run   # 演练，不写盘
+node lib/uninstall.js             # 真正还原
+node lib/uninstall.js --force     # 跳过基线校验（确认风险再用）
+```
 
 ## 许可
 
