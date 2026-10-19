@@ -13,19 +13,52 @@ DSH 的「撤回」插件：只撤**最后一条用户消息**，把对话与工
   5. **原会话保留**在会话列表中可回看，不会被删除。
 - 撤回按钮只挂在「最后一条用户消息」上；更早的消息请用框架自带的「分支」功能另开会话。
 
-## 安装（即装即用）
+## 安装（一行命令，即装即用）
 
-前提：已安装好 DSH，且要用的是 `web` profile。
+前提：已装好 DSH，且使用 `web` profile。
 
 ```bash
-# 把本目录放到任意固定位置后，执行（路径换成你机器上的绝对路径）：
+dsh plugin --profile web add https://github.com/Zok66/dsh-recall
+```
+
+**就这一条命令。** 从 GitHub 直装，不需要手动下载、不需要把仓库放到某个目录、不需要改任何配置。
+
+装完后**手动重启 `dsh web`**（或刷新前端页面），撤回按钮即生效。
+
+### 装完怎么确认成功
+
+```bash
+# 看插件是否在清单里
+dsh plugin --profile web list
+
+# 看启动日志是否打了补丁
+grep -i recall ~/.dsh/dsh-web.log | tail
+```
+
+正常会看到：
+
+```
+[recall] 前端撤回按钮已注入
+[recall] 已启用：撤回按钮（仅最后一条消息）+ 附件回填 + 文件快照与还原
+[recall] 附件读取路由已注册: /api/recall.attachment
+[recall] 撤回还原路由已注册: /api/recall.restore
+```
+
+### 卸载
+
+```bash
+dsh plugin --profile web remove dsh-recall
+```
+
+### 本地开发 / 改代码时
+
+如果你自己改了源码想立刻生效，用 `link:` 指向本地目录：
+
+```bash
 dsh plugin --profile web add link:/绝对路径/dsh-recall
 ```
 
-- 该命令会自动把插件的 bundle 声明写进 `web` profile 的 `cordis.patch.yml`，**无需手动改配置**。
-- 装完后**手动重启 `dsh web`**（或刷新前端页面），撤回按钮即生效。
-
-> 如果你长期分享，也可以把它发布到 npm / git，之后朋友用 `dsh plugin --profile web add dsh-recall` 一行即可安装。
+> 注意：`link:` 指向的目录**不要放在你的会话工作区里**，否则撤回时的文件回退可能波及它（插件已内置自我目录保护，但挪出去更干净）。
 
 ## 撤回语义（请注意，跟普通聊天撤回不同）
 
