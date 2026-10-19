@@ -79,6 +79,54 @@ rm -rf ~/.dsh/.recall-snapshots
 
 1. **超过 8MB 的文件不备份**，撤回时无法恢复其改动；但路径会登记进快照，**保证不被误删**。
 2. 撤回是**一次性**的：还原后不保留「撤回的撤回」。
+3. 撤回按钮出现在**最后一条用户消息**的动作条里、复制按钮左边（v2.1.0 起）。
+   这一格官方没有插槽：宿主只给助手回复开了 `conversation.chat.assistant-actions`，
+   用户消息侧的 actions 是 `UserStyleBubble` 里硬编码的。所以按钮用**浏览器 DOM 注入**实现——
+   仍然不改磁盘上任何框架文件，插件被 `remove` 后宿主不再加载本模块，按钮随页面卸载消失。
+   定位依赖 `[data-chat-flow-kind="user"]` 与动作条里的复制按钮，宿主大版本改结构时可能需要适配。
+
+## 撤回按钮是怎么放进去的（给维护者）
+
+宿主侧的事实（`dsh-client-ui-chat`）：
+
+- 只有 `conversation.chat.assistant-actions` 这个 list 插槽对外开放，挂在轮末尾的助手回复上；
+- 用户消息节点（`key: "user"`）注册时**没有声明 children**；
+- `UserStyleBubble` 收到的 `actions` 是硬编码的 `MessageIconActions`，没有 `extraActions` 入口。
+
+因此第三方插件**没有任何官方途径**把按钮放进用户消息动作条。v2.1.x 的做法：
+
+1. `MutationObserver` 监听 `document.body`，React 每次重渲染都会被兜住；
+2. 找到最后一个 `[data-chat-flow-kind="user"]` 行，在它内部找到带「复制」文案的按钮；
+3. **直接复用那个复制按钮的 `className`**——宿主的 `.action` 来自 CSS Module，包含前景色
+   `--dsw-alias-label-tertiary`、随 `--dsh-content-font-delta` 的 calc() 尺寸、hover 背景、
+   `svg` 尺寸等整套规则，抄类名才能 100% 一致；用内联样式复刻必然出现颜色偏深、大小不一的偏差
+   （v2.1.0 踩过，见下）；
+4. 图标本身也按宿主图标规范做：`viewBox="0 0 16 16"` + `stroke-width="1"`
+   （宿主 `dsh-client-ui-primitives` 的 outline 系列就是 1px 描边；用 24 网格 + 2px 描边会明显更黑更粗）；
+5. 插入前先清掉页面里所有旧的本插件按钮，保证「只有最后一条消息带按钮」；
+6. 幂等：已有按钮就只做保序移动，不重复插入。
+
+失败即静默（认不出结构就不显示），绝不影响聊天本身。
+
+> **v2.1.1 修的两个样式坑**（都是对着渲染图比对后改的，不是凭感觉）：
+> ① 按钮用内联样式 → 颜色偏深、与复制按钮大小不统一；改为复用类名。
+> ② 图标用 24 网格 + 2px 描边 → 显得又粗又黑；改为宿主同款 16 网格 + 1px 描边，
+> 几何也放大到撑满网格，避免 15px 实际尺寸下偏小。
+>
+> **v2.1.2 修图标位置偏移**：把图标渲染成 512px 位图量包围盒，与宿主复制图标对齐。
+> 修前垂直中心偏低 0.9 单位（看起来「偏下、不平行」），修后六项指标逐项重合：
+>
+> | 指标 | 复制图标 | 本图标 |
+> |---|---|---|
+> | 垂直中心 | 8.234 | **8.234** |
+> | 水平中心 | 7.734 | **7.734** |
+> | 垂直跨度 | 13.41 | **13.41** |
+> | 水平跨度 | 13.47 | **13.47** |
+> | 左边界 | 1.00 | **1.00** |
+> | 右边界 | 14.47 | **14.47** |
+>
+> 期间还发现一个反直觉的坑：用 `scale()` 放大来对齐尺寸，**会把 `stroke-width` 一起放大**
+> （1px→1.09px），描边反而变粗。所以最终**只做平移**，放大靠路径坐标本身实现。
 
 ## 开发：客户端半边的规范要点
 
@@ -89,7 +137,16 @@ rm -rf ~/.dsh/.recall-snapshots
 3. **注册 list 槽位时 `id` 字段必填**（「cell 由必填 id 定址」）。缺了会在 `register()` 直接抛错，导致整个客户端模块加载失败、前端启动页报 `Failed to load plugins`。
 4. **只能 require `PLATFORM_MODULES` 基线表里的模块**（`react`、`react/jsx-runtime` 等）；基线之外的模块请求必须在 `dsh.client.external` 声明。
 5. `dsh.client.inject` 是**信息性**的包名依赖边，不决定激活顺序；真正的等待靠 `ctx.slots.inject()`。
-6. `jsx()` 只接受单个 child，多个 child 要用 `jsxs()` + 数组。
+6. **`jsx()` / `jsxs()` 的第三个参数是 `key`，不是 `children`**（签名：`type, props, key?`）。多个子元素**必须塞进 `props.children`**：
+
+   ```js
+   // ✅ 正确
+   jsx.jsx("svg", { viewBox: "0 0 24 24", children: [jsx.jsx("path", {...}), jsx.jsx("path", {...})] })
+
+   // ❌ 错误（v2.0.0 的 bug）：两个 path 被当成 key 丢掉，svg 渲染成空壳，
+   //    按钮只剩自带的 minWidth/minHeight 占位，界面上表现为一块莫名的空白。
+   jsx.jsxs("svg", { viewBox: "0 0 24 24" }, [path1, path2])
+   ```
 
 ## 附件回填怎么实现的（给维护者）
 
