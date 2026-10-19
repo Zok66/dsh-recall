@@ -127,6 +127,13 @@ rm -rf ~/.dsh/.recall-snapshots
 >
 > 期间还发现一个反直觉的坑：用 `scale()` 放大来对齐尺寸，**会把 `stroke-width` 一起放大**
 > （1px→1.09px），描边反而变粗。所以最终**只做平移**，放大靠路径坐标本身实现。
+>
+> **v2.1.4 修「点撤回没反应/撤错会话」**：取当前会话 id 原来靠
+> `sessions.list` 里 `retainedBy.mainView > 0` 猜——那是「主视图保留计数」，
+> 多会话并存或列表快照滞后时会**猜错会话**（屏幕看 B 撤了 A）或**一个都猜不到**
+> （点击静默无反应）。现在改读宿主视图容器自带的
+> `[data-conversation-region="chat"][data-conversation-session]` 锚点，
+> 它由宿主 React 树直接渲染，值就是屏幕上正在显示的会话 id。锚点消失时静默忽略。
 
 ## 开发：客户端半边的规范要点
 
